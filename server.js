@@ -14,7 +14,7 @@ const upload = multer({ dest: 'uploads/' });
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.static('.')); // 改為讀取根目錄
 
 // Excel Template Download
 app.get('/api/template', (req, res) => {
