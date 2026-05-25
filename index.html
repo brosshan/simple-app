@@ -101,23 +101,27 @@
                     let localQuestions = DB.get('hero_questions', []);
                     let localUsers = DB.get('hero_users', []);
 
+                    // 1. Load words/passages from data.json if missing
                     if (localWords.length === 0) {
                         try {
                             const res = await fetch('data.json');
                             const data = await res.json();
-                            localWords = data.words;
-                            localPassages = data.passages;
-                            localQuestions = data.questions;
-                            // Add default admin
-                            localUsers = [{ id: 1, username: 'admin', password: 'admin123', role: 'admin', exam_category: '中級' }];
+                            localWords = data.words || [];
+                            localPassages = data.passages || [];
+                            localQuestions = data.questions || [];
                             
                             DB.set('hero_words', localWords);
                             DB.set('hero_passages', localPassages);
                             DB.set('hero_questions', localQuestions);
-                            DB.set('hero_users', localUsers);
                         } catch (e) {
-                            console.error("Failed to load initial data", e);
+                            console.error("Failed to load data.json", e);
                         }
+                    }
+
+                    // 2. Always ensure there is at least an admin if no users exist
+                    if (localUsers.length === 0) {
+                        localUsers = [{ id: 1, username: 'admin', password: 'admin123', role: 'admin', exam_category: '中級' }];
+                        DB.set('hero_users', localUsers);
                     }
 
                     setWords(localWords);
