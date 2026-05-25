@@ -101,7 +101,7 @@
                     let localQuestions = DB.get('hero_questions', []);
                     let localUsers = DB.get('hero_users', []);
 
-                    // 1. Load words/passages from data.json if missing
+                    // 1. Load words/passages/users from data.json if missing
                     if (localWords.length === 0) {
                         try {
                             const res = await fetch('data.json');
@@ -110,6 +110,12 @@
                             localPassages = data.passages || [];
                             localQuestions = data.questions || [];
                             
+                            // 載入 data.json 中的預設帳號 (如果有)
+                            if (data.users && data.users.length > 0) {
+                                localUsers = data.users;
+                                DB.set('hero_users', localUsers);
+                            }
+
                             DB.set('hero_words', localWords);
                             DB.set('hero_passages', localPassages);
                             DB.set('hero_questions', localQuestions);
@@ -118,7 +124,7 @@
                         }
                     }
 
-                    // 2. Always ensure there is at least an admin if no users exist
+                    // 2. Fallback: If still no users (even from data.json), add default admin
                     if (localUsers.length === 0) {
                         localUsers = [{ id: 1, username: 'admin', password: 'admin123', role: 'admin', exam_category: '中級' }];
                         DB.set('hero_users', localUsers);
