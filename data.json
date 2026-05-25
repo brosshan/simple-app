@@ -13818,5 +13818,42 @@
       "option_d": "Ice cream",
       "correct_answer": "C"
     }
+  ],
+  "users": [
+    {
+      "id": 1,
+      "username": "admin",
+      "password": "admin123",
+      "role": "admin",
+      "exam_category": "中級"
+    },
+    {
+      "id": 3,
+      "username": "user",
+      "password": "user123",
+      "role": "user",
+      "exam_category": "初級"
+    },
+    {
+      "id": 5,
+      "username": "user2",
+      "password": "user123",
+      "role": "user",
+      "exam_category": "中級"
+    },
+    {
+      "id": 20,
+      "username": "anna",
+      "password": "anna123",
+      "role": "user",
+      "exam_category": "初級"
+    },
+    {
+      "id": 21,
+      "username": "alan",
+      "password": "alan123",
+      "role": "user",
+      "exam_category": "初級"
+    }
   ]
 }
