@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>English Hero - 英檢學習挑戰</title>
+    <!-- 使用 CDN 避免本地編譯觸發防毒軟體 -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/framer-motion@10.16.4/dist/framer-motion.js"></script>
+    <style>
+        body { background-color: #fefce8; }
+        .game-card { background: white; border-radius: 2rem; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1); border: 4px solid #4ecdc4; padding: 2rem; }
+        .btn-hover { transition: all 0.2s; }
+        .btn-hover:hover { transform: scale(1.05); }
+        .btn-hover:active { transform: scale(0.95); }
+        .input-field { width: 100%; padding: 1rem; border-radius: 0.75rem; border: 2px solid #e5e7eb; outline: none; transition: border-color 0.2s; }
+        .input-field:focus { border-color: #4ecdc4; }
+        .select-field { width: 100%; padding: 1rem; border-radius: 0.75rem; border: 2px solid #e5e7eb; background: white; cursor: pointer; }
+        .reading-content { line-height: 1.8; font-size: 1.25rem; color: #374151; background: #f9fafb; padding: 2rem; border-radius: 1.5rem; border: 1px solid #e5e7eb; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        const { motion, AnimatePresence } = window.Motion;
+
+        // Pronunciation Function
+        const speak = (text) => {
+            if (!window.speechSynthesis) {
+                alert('您的瀏覽器不支援發音功能');
+                return;
+            }
+            window.speechSynthesis.cancel(); // Stop any current speech
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'en-US'; // Set to American English
+            utterance.rate = 0.9;      // Slightly slower for clarity
+            window.speechSynthesis.speak(utterance);
+        };
+
+        function App() {
+            const [user, setUser] = useState(null); 
+            const [mode, setMode] = useState('login'); // login, home, test, reading, result, admin, userManage, reports
+            
+            // Login state
+            const [loginUser, setLoginUser] = useState('');
+            const [loginPass, setLoginPass] = useState('');
+            
+            // Test/Shared state
+            const [testWords, setTestWords] = useState([]);
+            const [currentIndex, setCurrentIndex] = useState(0);
+            const [options, setOptions] = useState([]);
+            const [score, setScore] = useState(0);
+            const [failedWordIds, setFailedWordIds] = useState([]);
+            const [allWords, setAllWords] = useState([]);
+            const [isWrong, setIsWrong] = useState(false);
+            
+            // Reading state
+            const [currentPassage, setCurrentPassage] = useState(null);
+            const [readingStep, setReadingStep] = useState('read'); // read, quiz
+
+            // Admin/Word state
+            const [newEng, setNewEng] = useState('');
+            const [newChi, setNewChi] = useState('');
+            const [newCat, setNewCat] = useState('初級');
+            const [wordList, setWordList] = useState([]);
+
+            // User management state
+            const [newUser, setNewUser] = useState('');
+            const [newPass, setNewPass] = useState('');
+            const [newExamCat, setNewExamCat] = useState('初級');
+            const [userList, setUserList] = useState([]);
+
+            // Reports state
+            const [reportList, setReportList] = useState([]);
+
+            useEffect(() => { if (user) refreshData(); }, [user]);
+
+            const refreshData = () => {
+                fetch(`/api/words/random?count=50&category=${user.exam_category}`).then(res => res.json()).then(setAllWords);
+                fetch('/api/words').then(res => res.json()).then(setWordList);
+                if (user?.role === 'admin') {
+                    fetch('/api/users').then(res => res.json()).then(setUserList);
+                }
+                fetch(`/api/reports?user_id=${user.id}&role=${user.role}`).then(res => res.json()).then(setReportList);
+            };
+
+            const handleLogin = async (e) => {
+                e.preventDefault();
+                const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: loginUser, password: loginPass }) });
+                const data = await res.json();
+                if (data.error) alert(data.error); else { setUser(data); setMode('home'); }
+            };
+
+            const startVocabularyTest = async (isChallenge = false) => {
+                const url = isChallenge 
+                    ? `/api/words/failed?category=${user.exam_category}` 
+                    : `/api/words/random?count=30&category=${user.exam_category}&user_id=${user.id}`;
+                const res = await fetch(url);
+                const words = await res.json();
+                if (words.length === 0) { alert('目前沒有題目喔！'); return; }
+                setTestWords(words); setCurrentIndex(0); setScore(0); setFailedWordIds([]); setupQuestion(words[0]); setMode('test');
+            };
+
+            const startReadingTest = async () => {
+                const res = await fetch(`/api/reading/random?category=${user.exam_category}`);
+                const data = await res.json();
+                if (!data) { alert('目前沒有閱讀題目喔！'); return; }
+                setCurrentPassage(data);
+                setReadingStep('read');
+                setCurrentIndex(0);
+                setScore(0);
+                setMode('reading');
+            };
+
+            const setupQuestion = (currentWord) => {
+                const others = allWords.filter(w => w.english !== currentWord.english).sort(() => 0.5 - Math.random()).slice(0, 3).map(w => w.chinese);
+                setOptions([...others, currentWord.chinese].sort(() => 0.5 - Math.random()));
+                setIsWrong(false);
+            };
+
+            const handleAnswer = (answer) => {
+                const currentWord = testWords[currentIndex];
+                if (answer === currentWord.chinese) { setScore(prev => prev + 1); nextQuestion(); }
+                else { setIsWrong(true); if (!failedWordIds.includes(currentWord.id)) setFailedWordIds(prev => [...prev, currentWord.id]); setTimeout(nextQuestion, 800); }
+            };
+
+            const nextQuestion = () => {
+                if (currentIndex + 1 < testWords.length) { const nextIdx = currentIndex + 1; setCurrentIndex(nextIdx); setupQuestion(testWords[nextIdx]); }
+                else finishTest();
+            };
+
+            const handleReadingAnswer = (ansLetter) => {
+                const q = currentPassage.questions[currentIndex];
+                if (ansLetter === q.correct_answer) { setScore(prev => prev + 1); alert('答對了！✨'); }
+                else { alert(`答錯了，正確答案是 (${q.correct_answer})`); }
+                if (currentIndex + 1 < currentPassage.questions.length) { setCurrentIndex(prev => prev + 1); }
+                else { finishTest(currentPassage.questions.length); }
+            };
+
+            const [isSyncing, setIsSyncing] = useState(false);
+
+            const finishTest = (totalOverride) => {
+                const total = totalOverride || testWords.length;
+                fetch('/api/test/record', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ score, totalQuestions: total, failedWordIds, user_id: user.id, category: user.exam_category }) });
+                
+                // Trigger Online Cloud Sync
+                setIsSyncing(true);
+                fetch('/api/cloud-sync', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ category: user.exam_category })
+                }).then(() => {
+                    setTimeout(() => setIsSyncing(false), 2000);
+                });
+
+                setMode('result');
+            };
+
+            const handleAddWord = async (e) => {
+                e.preventDefault();
+                const res = await fetch('/api/words', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ english: newEng, chinese: newChi, category: newCat }) });
+                const data = await res.json();
+                if (data.error) alert(data.error);
+                else { alert('新增成功！'); setNewEng(''); setNewChi(''); refreshData(); }
+            };
+
+            const handleAddUser = async (e) => {
+                e.preventDefault();
+                const res = await fetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: newUser, password: newPass, exam_category: newExamCat }) });
+                const data = await res.json();
+                if (data.error) alert(data.error);
+                else { alert('帳號建立成功！'); setNewUser(''); setNewPass(''); refreshData(); }
+            };
+
+            const deleteUser = async (id) => {
+                if (!confirm('確定要刪除此帳號嗎？')) return;
+                await fetch(`/api/users/${id}`, { method: 'DELETE' });
+                refreshData();
+            };
+
+            return (
+                <div className="min-h-screen flex flex-col items-center justify-center p-4 font-sans text-gray-800">
+                    <header className="mb-8 text-center">
+                        <h1 className="text-5xl font-black text-[#FF6B6B] mb-2">English <span className="text-[#4ECDC4]">Hero</span></h1>
+                        <p className="text-gray-500 font-bold tracking-widest text-lg">全台最有趣的英檢學習網</p>
+                    </header>
+
+                    <main className="w-full max-w-3xl">
+                        <AnimatePresence mode="wait">
+                            {mode === 'login' && (
+                                <motion.div key="login" initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} className="game-card max-w-md mx-auto">
+                                    <h2 className="text-2xl font-black text-center mb-6">歡迎挑戰！請登入</h2>
+                                    <form onSubmit={handleLogin} className="space-y-4">
+                                        <input type="text" placeholder="您的帳號" value={loginUser} onChange={e => setLoginUser(e.target.value)} className="input-field font-bold" required />
+                                        <input type="password" placeholder="您的密碼" value={loginPass} onChange={e => setLoginPass(e.target.value)} className="input-field font-bold" required />
+                                        <button type="submit" className="w-full bg-[#4ECDC4] text-white font-black py-4 rounded-xl shadow-lg btn-hover text-xl">🚀 登入學習</button>
+                                    </form>
+                                </motion.div>
+                            )}
+
+                            {mode === 'home' && (
+                                <motion.div key="home" initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} className="game-card text-center space-y-6">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <div className="text-left">
+                                            <p className="text-xs font-bold text-gray-400 uppercase tracking-tighter">Current Level</p>
+                                            <span className="bg-[#4ECDC4]/10 text-[#4ECDC4] px-3 py-1 rounded-full text-sm font-black">GEPT {user?.exam_category}</span>
+                                        </div>
+                                        <button onClick={() => setUser(null) || setMode('login')} className="text-xs text-red-400 font-bold hover:underline">登出系統</button>
+                                    </div>
+                                    <h2 className="text-4xl font-black text-gray-700">Hello, {user?.username}!</h2>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4">
+                                        <button onClick={() => startVocabularyTest(false)} className="bg-[#FF6B6B] text-white font-black py-7 rounded-3xl shadow-xl btn-hover text-xl">🔤 單字測驗</button>
+                                        <button onClick={startReadingTest} className="bg-orange-400 text-white font-black py-7 rounded-3xl shadow-xl btn-hover text-xl">📖 閱讀理解</button>
+                                        <button onClick={() => startVocabularyTest(true)} className="bg-[#4ECDC4] text-white font-black py-7 rounded-3xl shadow-xl btn-hover text-xl">📚 錯題回顧</button>
+                                    </div>
+                                    <div className="flex flex-col gap-3 pt-8 border-t border-dashed border-gray-100">
+                                        <button onClick={() => { refreshData(); setMode('reports'); }} className="text-blue-500 font-bold hover:text-blue-600">📊 查看測驗報表</button>
+                                        {user?.role === 'admin' && (
+                                            <>
+                                                <button onClick={() => setMode('admin')} className="text-[#4ECDC4] font-bold hover:text-[#3dbbb3]">⚙️ 擴充題庫 / 內容管理</button>
+                                                <button onClick={() => setMode('userManage')} className="text-purple-400 font-bold hover:text-purple-500">👤 使用者帳號管理系統</button>
+                                            </>
+                                        )}
+                                    </div>
+                                </motion.div>
+                            )}
+
+                            {mode === 'reading' && (
+                                <motion.div key="reading" initial={{opacity:0, scale:0.95}} animate={{opacity:1}} className="game-card">
+                                    <div className="flex justify-between items-center mb-6">
+                                        <h2 className="text-2xl font-black text-gray-700">{currentPassage.title}</h2>
+                                        <span className="bg-orange-100 text-orange-600 px-3 py-1 rounded-full text-sm font-bold">Reading Mode</span>
+                                    </div>
+                                    {readingStep === 'read' ? (
+                                        <div className="space-y-6">
+                                            <div className="reading-content">{currentPassage.content}</div>
+                                            <button onClick={() => setReadingStep('quiz')} className="w-full bg-[#FF6B6B] text-white font-black py-4 rounded-2xl shadow-lg btn-hover text-xl italic">我讀完了，開始答題！ 👉</button>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-8">
+                                            <div className="bg-yellow-50 p-6 rounded-2xl border-2 border-yellow-200">
+                                                <p className="text-sm font-bold text-yellow-600 mb-2">Question {currentIndex + 1} of {currentPassage.questions.length}</p>
+                                                <p className="text-xl font-black text-gray-800">{currentPassage.questions[currentIndex].question}</p>
+                                            </div>
+                                            <div className="grid grid-cols-1 gap-3">
+                                                {['A', 'B', 'C', 'D'].map(letter => (
+                                                    <button key={letter} onClick={() => handleReadingAnswer(letter)} className="p-5 rounded-xl border-2 border-gray-100 hover:border-orange-400 text-left font-bold flex gap-4 transition-all">
+                                                        <span className="bg-gray-100 w-8 h-8 rounded-full flex items-center justify-center text-sm">{letter}</span>
+                                                        <span>{currentPassage.questions[currentIndex][`option_${letter.toLowerCase()}`]}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            <button onClick={() => setReadingStep('read')} className="text-gray-400 font-bold hover:underline">返回閱讀原文</button>
+                                        </div>
+                                    )}
+                                </motion.div>
+                            )}
+
+                            {mode === 'test' && (
+                                <motion.div key="test" initial={{opacity:0, scale:0.9}} animate={{opacity:1}} className={`game-card ${isWrong ? 'border-red-500 bg-red-50' : 'border-[#4ECDC4]'}`}>
+                                    <div className="flex justify-between mb-8 font-black">
+                                        <span className="bg-yellow-300 px-6 py-2 rounded-full text-gray-700">Q {currentIndex + 1} / {testWords.length}</span>
+                                        <span className="text-2xl text-[#4ECDC4]">Score: {score}</span>
+                                    </div>
+                                    <div className="text-center py-16">
+                                        <div className="flex items-center justify-center gap-4">
+                                            <h2 className="text-7xl font-black text-gray-800 tracking-tight">{testWords[currentIndex]?.english}</h2>
+                                            <button onClick={() => speak(testWords[currentIndex]?.english)} className="p-3 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors shadow-sm" title="聽發音">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {options.map((opt, i) => (
+                                            <button key={i} onClick={() => handleAnswer(opt)} className="py-6 px-6 rounded-2xl border-4 border-gray-100 hover:border-[#FF6B6B] hover:bg-red-50 text-2xl font-black text-gray-700 transition-all shadow-sm">{opt}</button>
+                                        ))}
+                                    </div>
+                                </motion.div>
+                            )}
+
+                            {mode === 'result' && (
+                                <motion.div key="result" className="game-card text-center space-y-8 border-yellow-400">
+                                    <div className="text-9xl animate-bounce">🏆</div>
+                                    <h2 className="text-4xl font-black text-gray-700">測驗完成！得分：<span className="text-[#FF6B6B]">{score}</span></h2>
+                                    
+                                    {failedWordIds.length > 0 && (
+                                        <div className="text-left bg-red-50 p-6 rounded-2xl border-2 border-red-100">
+                                            <h3 className="text-xl font-black text-red-500 mb-4 flex items-center gap-2">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                                需再加強的單字 ({failedWordIds.length})
+                                            </h3>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                {failedWordIds.map(id => {
+                                                    const word = testWords.find(w => w.id === id);
+                                                    return word ? (
+                                                        <div key={id} className="bg-white p-3 rounded-xl border border-red-50 flex justify-between items-center shadow-sm">
+                                                            <span className="font-bold text-gray-800">{word.english}</span>
+                                                            <span className="text-sm text-gray-500">{word.chinese}</span>
+                                                        </div>
+                                                    ) : null;
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <button onClick={() => { refreshData(); setMode('home'); }} className="bg-[#FF6B6B] text-white font-black py-5 w-full rounded-3xl shadow-xl btn-hover text-2xl">🔙 返回首頁</button>
+                                </motion.div>
+                            )}
+
+                            {mode === 'reports' && (
+                                <motion.div key="reports" className="game-card">
+                                    <div className="flex justify-between items-center mb-6">
+                                        <h2 className="text-2xl font-black text-gray-700">測驗數據報表</h2>
+                                        <button onClick={() => setMode('home')} className="font-bold text-gray-400">✕</button>
+                                    </div>
+                                    <div className="max-h-[500px] overflow-y-auto space-y-3 pr-2">
+                                        {reportList.map(r => (
+                                            <div key={r.id} className="p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-3">
+                                                <div className="flex justify-between items-center">
+                                                    <div>
+                                                        <span className="font-black text-gray-700">{new Date(r.created_at).toLocaleDateString()}</span>
+                                                        <span className="ml-2 text-xs font-bold text-gray-400 uppercase tracking-tighter">{r.category}</span>
+                                                    </div>
+                                                    <span className="font-black text-2xl text-[#FF6B6B]">{r.score}/{r.total_questions}</span>
+                                                </div>
+                                                
+                                                {r.failed_word_ids && (
+                                                    <div className="pt-2 border-t border-dashed border-gray-200">
+                                                        <p className="text-xs font-bold text-gray-400 mb-2">錯誤題目紀錄：</p>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {r.failed_word_ids.split(',').map(id => {
+                                                                const word = wordList.find(w => w.id === parseInt(id));
+                                                                return word ? (
+                                                                    <span key={id} className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded-lg font-bold">
+                                                                        {word.english} ({word.chinese})
+                                                                    </span>
+                                                                ) : null;
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </motion.div>
+                            )}
+
+                            {mode === 'admin' && (
+                                <motion.div key="admin" className="game-card">
+                                    <div className="flex justify-between items-center mb-6">
+                                        <h2 className="text-2xl font-black text-gray-700">內容管理平台</h2>
+                                        <button onClick={() => setMode('home')} className="font-bold text-gray-400">✕ 關閉</button>
+                                    </div>
+                                    <div className="flex flex-col md:flex-row gap-4 mb-6">
+                                        <div className="flex-1 bg-gray-50 p-6 rounded-2xl border-2 border-dashed">
+                                            <h3 className="font-bold text-sm uppercase mb-4">手動新增</h3>
+                                            <form onSubmit={handleAddWord} className="space-y-4">
+                                                <input type="text" placeholder="英文單字" value={newEng} onChange={e => setNewEng(e.target.value)} className="input-field font-bold" required />
+                                                <input type="text" placeholder="中文解釋" value={newChi} onChange={e => setNewChi(e.target.value)} className="input-field font-bold" required />
+                                                <select value={newCat} onChange={e => setNewCat(e.target.value)} className="select-field"><option value="初級">初級</option><option value="中級">中級</option></select>
+                                                <button type="submit" className="w-full bg-[#4ECDC4] text-white font-black py-3 rounded-xl shadow-md">➕ 新增</button>
+                                            </form>
+                                        </div>
+                                        <div className="flex-1 bg-blue-50 p-6 rounded-2xl border-2 border-dashed">
+                                            <h3 className="font-bold text-blue-500 text-sm uppercase mb-4">Excel 匯入</h3>
+                                            <a href="/api/template" className="block text-center bg-blue-500 text-white font-black py-3 rounded-xl shadow-md btn-hover mb-4">📥 下載範本</a>
+                                            <input type="file" accept=".xlsx" onChange={async (e) => {
+                                                const file = e.target.files[0];
+                                                if (!file) return;
+                                                const formData = new FormData(); formData.append('file', file);
+                                                const res = await fetch('/api/import', { method: 'POST', body: formData });
+                                                const data = await res.json();
+                                                if (data.success) { alert(`成功匯入 ${data.count} 個單字！`); refreshData(); } else { alert(data.error); }
+                                            }} />
+                                        </div>
+                                    </div>
+                                    <div className="max-h-60 overflow-y-auto space-y-1">
+                                        {wordList.map(w => (
+                                            <div key={w.id} className="flex justify-between p-3 border-b text-sm">
+                                                <span>{w.english} ({w.category})</span>
+                                                <span className="text-gray-400">{w.chinese}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </motion.div>
+                            )}
+
+                            {mode === 'userManage' && (
+                                <motion.div key="userManage" className="game-card border-purple-300">
+                                    <div className="flex justify-between items-center mb-6">
+                                        <h2 className="text-2xl font-black text-gray-700">帳號管理系統</h2>
+                                        <button onClick={() => setMode('home')} className="font-bold text-gray-400">✕</button>
+                                    </div>
+                                    <form onSubmit={handleAddUser} className="space-y-4 mb-8">
+                                        <input type="text" placeholder="新帳號" value={newUser} onChange={e => setNewUser(e.target.value)} className="input-field font-bold" required />
+                                        <input type="password" placeholder="密碼" value={newPass} onChange={e => setNewPass(e.target.value)} className="input-field font-bold" required />
+                                        <select value={newExamCat} onChange={e => setNewExamCat(e.target.value)} className="select-field"><option value="初級">初級</option><option value="中級">中級</option></select>
+                                        <button type="submit" className="w-full bg-purple-400 text-white font-black py-4 rounded-xl shadow-md">👤 建立帳號</button>
+                                    </form>
+                                    <div className="space-y-2">
+                                        {userList.map(u => (
+                                            <div key={u.id} className="flex justify-between p-3 border-b text-sm">
+                                                <span>{u.username} ({u.exam_category})</span>
+                                                {u.username !== 'admin' && <button onClick={() => deleteUser(u.id)} className="text-red-400">刪除</button>}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </main>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
